@@ -13,8 +13,8 @@ find repaired_quantity_range_min: int(1..200)
 find repaired_quantity_range_delta: int(0..199)
 
 $ irace (negated) forbidden constraint
-such that (repaired_quantity_range_min*repaired_np_classes <= min({200, (repaired_np_classes+repaired_np_cars_plus)})),
-(repaired_quantity_range_min+repaired_quantity_range_delta)*repaired_np_classes>=min({200, (repaired_np_classes+repaired_np_cars_plus)})
+such that (repaired_quantity_range_min*repaired_np_classes <= min([50, (repaired_np_classes+repaired_np_cars_plus)])),
+(repaired_quantity_range_min+repaired_quantity_range_delta)*repaired_np_classes>=min([50, (repaired_np_classes+repaired_np_cars_plus)])
 
 given maxcars_range_min: int(1..10)
 given maxcars_range_delta: int(0..9)
