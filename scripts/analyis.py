@@ -25,7 +25,12 @@ def main():
     with open(args.fileName, 'r') as f:
         f.readline()
         # print(f.readline())
-        lsLines = [json.loads(s)["status"] for s in f.readlines()]
+        lsLines = []
+        for s in f.readlines():
+            data = json.loads(s)
+            if "ok" in data["status"]:
+                print(s)
+            lsLines.append(data["status"])
     print(Counter(lsLines).items())
 
 
