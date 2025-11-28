@@ -4,7 +4,7 @@ given np_cars_plus: int(1..50)
 given np_classes: int(1..50)
 given np_options: int(1..20)
 
-letting np_cars be min({50, np_classes+np_cars_plus})
+letting np_cars be min([50, np_classes+np_cars_plus])
 
 find n_cars, n_classes, n_options: int(1..50)
 such that
