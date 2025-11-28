@@ -318,7 +318,7 @@ def main():
     parser.add_argument(
         "--genSolver",
         default="minion",
-        choices=["minion"],
+        choices=["minion", "chuffed"],
         help="solver used for solving each generator instance (only minion is supported at the moment)",
     )
     parser.add_argument(
