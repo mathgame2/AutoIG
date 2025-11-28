@@ -1,2 +1,13 @@
 # Ignore __pycache__ directories
 __pycache__/
+bin/conjure/
+bin/irace/
+bin/minion/
+bin/minizinc/
+bin/picat/
+bin/R6/
+bin/savilerow/
+bin/yuck/
+experiments/
+.gitignore
+bin/runsolver-3.4.1.tar.bz2
