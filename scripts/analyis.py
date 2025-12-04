@@ -74,6 +74,7 @@ def main():
                         lsLines.append("ok sat")
                 else:
                     lsLines.append(data["status"])
+
     print(Counter(lsLines).items())
 
 
