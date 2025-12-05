@@ -42,6 +42,7 @@ def main():
         f.readline()
         # print(f.readline())
         lsLines = []
+        okTimes = []
         for s in f.readlines():
             data = json.loads(s)
             if args.repair:
@@ -61,6 +62,7 @@ def main():
                         lsLines.append("tooDifficult")
                     else:
                         lsLines.append("ok " + medianRun["status"])
+                        okTimes.append(medianRun["solverTime"])
 
 
             else:
@@ -72,11 +74,12 @@ def main():
                         # print(s)
                     else:
                         lsLines.append("ok sat")
+                    okTimes.append(medianRun["solverTime"])
                 else:
                     lsLines.append(data["status"])
 
     print(Counter(lsLines).items())
-
+    print (okTimes)
 
 
 main()
