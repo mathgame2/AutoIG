@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import json
 import os
 import sys
@@ -43,6 +44,7 @@ def main():
         # print(f.readline())
         lsLines = []
         okTimes = []
+        okInst = []
         for s in f.readlines():
             data = json.loads(s)
             if args.repair:
@@ -63,7 +65,7 @@ def main():
                     else:
                         lsLines.append("ok " + medianRun["status"])
                         okTimes.append(medianRun["solverTime"])
-
+                        okInst.append(data["instanceResults"]["instance"])
 
             else:
                 if "ok" in data["status"]:
@@ -75,9 +77,11 @@ def main():
                     else:
                         lsLines.append("ok sat")
                     okTimes.append(medianRun["solverTime"])
+                    okInst.append(data["instanceResults"]["instance"])
                 else:
                     lsLines.append(data["status"])
-
+            plt.scatter(okInst, okTimes)
+            plt.show()
     print(Counter(lsLines).items())
     print (okTimes)
 
