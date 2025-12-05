@@ -83,13 +83,12 @@ def main():
                     medianRun = data["instanceResults"]["results"]["main"]["runs"][int(nRuns / 2)]
 
                     if not (medianRun["solverTime"] <= args.minTime or medianRun["solverTime"] >= args.maxTime):
-                        copyInstFile(args.detailedOutDir, os.path.basename(data["instanceResults"]["instance"], os.path.join(args.outDir, medianRun["status"])))
+                        copyInstFile(args.detailedOutDir, os.path.basename(data["instanceResults"]["instance"]), os.path.join(args.outDir, medianRun["status"]))
 
             else:
                 if "ok" in data["status"]:
                     nRuns = len(data["instanceResults"]["results"]["main"]["runs"])
                     medianRun = data["instanceResults"]["results"]["main"]["runs"][int(nRuns / 2)]
-                    copyInstFile(args.detailedOutDir, os.path.basename(data["instanceResults"]["instance"], os.path.join(args.outDir, medianRun["status"])))
 
 
 main()
