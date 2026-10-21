@@ -285,7 +285,6 @@ def evaluate_mzn_instance_graded(
         def normalise(maxVal, minVal, val):
             return ((val - minVal) / (maxVal - minVal))
 
-
         # request lock
         with lock:
             with open("diversity.txt", "r+") as f:
@@ -316,6 +315,7 @@ def evaluate_mzn_instance_graded(
             differences.append(round(abs(entryTime - medianRun["time"]), 2))
         
         if metric == "max_closest_dist":
+            # TODO: decide if -1 is necessary here
             # flatten to 0-1 by dividing the range of difference, then obtain the decimal bucket the difference is in
             # currently only to the granularity of 10 buckets so working in decimal
             diffNormal = list(map(lambda x : int(math.floor((x / (timeLimit - minTime))* 10)), differences))
@@ -342,8 +342,10 @@ def evaluate_mzn_instance_graded(
             score = -avgDist
 
     elif (metric == "none"):
+        # No addional diversity scoring, just base graded score
         score = -1
     elif (metric == "random"):
+        # Give a random score based on the current instance seed (not overall seed)
         instance = instFile.replace(".dzn", "")
         seed = instance.split("-")[-1]
         random.seed(seed)
@@ -390,6 +392,7 @@ def evaluate_mzn_instance_graded(
 
         filteredData = list(map(lambda x: float(x.split(",")[-1]), filteredData)) # extract the normalised solver times
 
+        # obtain the W distance before and after adding the new instance
         preDist = get_wasserstein_distance_area(filteredData)
         filteredData.append(currentNormTime)
         postDist = get_wasserstein_distance_area(filteredData)
@@ -399,7 +402,9 @@ def evaluate_mzn_instance_graded(
         if metric == "wassersteinDelta":
             # Set -1.5 as center, Wmax is 0.5 so worst case an instance is scored same as no information/just graded score
             score = (-1.5) + distDelta # addition because positive deltas are worse so penalise
-        elif metric == "wassersteinDeltaReverse":
+            
+            
+        elif metric == "wassersteinDeltaReverse": # reversing the metric to test if metric actually influences one way
             score = (-1.5) - distDelta
 
     elif (metric == "individualAvgBuckets" or metric == "individualNormEntropy" or metric == "individualBuckets"):

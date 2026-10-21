@@ -25,3 +25,15 @@ bin/data.table
 bin/digest
 bin/matrixStats
 bin/spacefillr
+scripts/histogram.py
+scripts/boxplot.py
+scripts/scatter.py
+scripts/analyis.py
+scripts/histIndvidual.py
+testDiversity.py
+scripts/analyisTable.py
+scripts/analysisSignificance.py
+scripts/cd.py
+scripts/processRData.py
+scripts/seedPlot.py
+scripts/test.R
