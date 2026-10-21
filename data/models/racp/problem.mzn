@@ -53,8 +53,8 @@ int: n_tasks;                           % The number of tasks
 set of int: Tasks = 1..n_tasks;         % The set of tasks
 array [Tasks] of int: dur;              % The duration of tasks
 array [Res, Tasks] of int: rr;          % The resource requirement of tasks
-array [Tasks] of set of Tasks: succ;    % The (immediate) successors of tasks
-
+array [Tasks] of set of Tasks: succ_rel;    % The (immediate) successors of tasks
+array [Tasks] of int: succ_levels;      % Required by essence model, superfluous here
 
     % Planning Horizon
     %
@@ -68,7 +68,7 @@ set of int: Times = 0..t_max;   % The planning horizon
     % Tasks
     %
 array [Tasks] of set of Tasks: prec =   % The (immediate) predecessors of tasks
-    [ {j | j in Tasks diff all_succ[i] where i in succ[j]} | i in Tasks ];
+    [ {j | j in Tasks diff all_succ[i] where i in succ_rel[j]} | i in Tasks ];
 array [Tasks] of set of Tasks: all_succ =   % All successors of tasks
     [ all_succs(i) | i in Tasks ];
 array [Tasks] of set of Tasks: all_prec =   % All predecessors of tasks
@@ -125,8 +125,8 @@ var sum(lb_cost)..sum(ub_cost): objective;
 function set of Tasks: all_succs(Tasks: i) = (
     let {
         array[int] of set of Tasks: all_succs_js = 
-            [ all_succs(j) | j in succ[i] ];
-    } in array_union(all_succs_js) union succ[i]
+            [ all_succs(j) | j in succ_rel[i] ];
+    } in array_union(all_succs_js) union succ_rel[i]
 );
 
     % Test whether the executions of two tasks are overlapping
@@ -157,7 +157,7 @@ function largeTimes: est(Tasks: i) = (
     %
 function largeTimes: lct(Tasks: i) = (
     let {
-        array[int] of largeTimes: all_succ_lst = [t_max] ++ [ lct(j) - dur[j] | j in succ[i] ];
+        array[int] of largeTimes: all_succ_lst = [t_max] ++ [ lct(j) - dur[j] | j in succ_rel[i] ];
     } in
         min(all_succ_lst)
 );
@@ -177,7 +177,7 @@ constraint forall(i in Tasks)(
 
     % Precedence constraints
     %
-constraint forall(i in Tasks, j in succ[i])(
+constraint forall(i in Tasks, j in succ_rel[i])(
     s[i] + dur[i] <= s[j]
 );
 

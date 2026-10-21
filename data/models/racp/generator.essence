@@ -46,19 +46,16 @@ find succ_levels : matrix indexed by [Tasks] of int(1..prec_layers)  $ map each 
 letting rr_entries be nTasks*nResources
 
 find rr: matrix indexed by [Res, Tasks] of int(0, min([res_bound1, res_bound2])..max([res_bound1, res_bound2]))     $  O or within the interval
-find rr_zero_entries : int(0..rr_entries)
 
 $  Make sure that all tasks have an earliest start time within range, so the mzn model does not crash. 
 $ find est : matrix indexed by [Tasks] of int(0..tMax)
 
 such that
 
-$ Percentage of rr that is 0. 
-sum([ toInt(rr[i,j]=0) | i : Res, j : Tasks])=rr_zero_entries,
 
 $ Percentage given by tuner lies within an interval (interval may be one value, depending on size of matrix). 
-res_zeros >= (rr_zero_entries*100)/rr_entries, 
-res_zeros <= ( (rr_zero_entries+1)*100)/rr_entries,
+res_zeros >= (sum([ toInt(rr[i,j]=0) | i : Res, j : Tasks])*100)/rr_entries, 
+res_zeros <= ( (sum([ toInt(rr[i,j]=0) | i : Res, j : Tasks])+1)*100)/rr_entries,
 
 $ Make the succ relation acyclic. 
 
