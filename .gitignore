@@ -37,3 +37,4 @@ scripts/cd.py
 scripts/processRData.py
 scripts/seedPlot.py
 scripts/test.R
+data/notes

@@ -6,6 +6,10 @@ Example:
         --instances demo/instances.txt \\
         --param x real -5 5 --param y real -5 5 --param n int 1 10 \\
         --budget 1500
+
+Parameters can also come from an R irace parameter file (numeric subset only):
+    python3 cli.py --target-runner ./target-runner --instances instances \\
+        --parameter-file params.irace --budget 1000
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import os
 
 from instances import read_instances
 from irace import irace_run
+from parameters_file import read_parameters
 from report import print_final
 from scenario import Parameter, Scenario
 from target_runner import DEFAULT_TARGET_CMDLINE
@@ -30,6 +35,9 @@ def parse_args():
                          help="maximum number of target-runner experiments")
     parser.add_argument("--param", action="append", nargs=4, metavar=("NAME", "KIND", "LOWER", "UPPER"),
                          default=[], help="a numeric parameter: NAME real|int LOWER UPPER (repeatable)")
+    parser.add_argument("--parameter-file", default=None,
+                        help="R irace parameter file with lines 'name \"switch\" i|r (lower, upper)'; "
+                             "combined with any --param")
     parser.add_argument("--switch", action="append", default=[], metavar="NAME=SWITCH",
                         help="command-line switch of parameter NAME, pasted directly before its "
                              "value (default '--NAME '; e.g. --switch 'alpha=--alpha=') (repeatable)")
@@ -108,13 +116,26 @@ def load_function(spec: str):
 
 def main() -> None:
     args = parse_args()
-    if not args.param:
-        raise SystemExit("at least one --param is required")
+    if not args.param and not args.parameter_file:
+        raise SystemExit("at least one --param or a --parameter-file is required")
 
-    switches = parse_switches(args.switch, [name for name, *_ in args.param])
-    parameters = [Parameter(name, kind, float(lower), float(upper), digits=args.digits,
-                            switch=switches.get(name))
-                  for name, kind, lower, upper in args.param]
+    parameters = []
+    if args.parameter_file:
+        try:
+            parameters = read_parameters(args.parameter_file, digits=args.digits)
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"--parameter-file: {e}") from e
+    names = [p.name for p in parameters] + [name for name, *_ in args.param]
+    duplicated = sorted({name for name in names if names.count(name) > 1})
+    if duplicated:
+        raise SystemExit(f"parameters given more than once: {', '.join(duplicated)}")
+
+    switches = parse_switches(args.switch, names)
+    for p in parameters:
+        p.switch = switches.get(p.name, p.switch)
+    parameters += [Parameter(name, kind, float(lower), float(upper), digits=args.digits,
+                             switch=switches.get(name))
+                   for name, kind, lower, upper in args.param]
     instances = read_instances(args.instances)
 
     scenario = Scenario(
