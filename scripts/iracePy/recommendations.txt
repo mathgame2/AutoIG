@@ -1,0 +1,437 @@
+Replacing R irace with scripts/iracePy in AutoIG: recommendations
+=================================================================
+
+Date: 2026-10-21. Based on branch newIrace (commit 0c5c7b6), where iracePy is
+still untracked.
+
+
+1. Summary
+----------
+
+The swap is smaller than it looks. AutoIG uses irace as a black box: it hands
+irace a parameter file, a one-line "dummy" instance file, a target runner and a
+repair function, then reads the results from the files its own target runner
+writes. Nothing in the diversity metrics or the evaluators talks to irace
+directly. The Python port already handles AutoIG's case: integer parameters
+only, the Friedman test, elitist and non-elitist racing, Inf rejection, a repair
+hook, and parallel runs.
+
+A smoke test confirmed this (section 3). The port read conjure's params.irace
+format, called the runner as `<cid> <iid> <seed> dummy -Ag 6 -Tg 4 ...`, which
+is exactly what wrapper_helpers.read_args expects, handled "Inf" results, and
+used exactly the requested budget.
+
+Work needed, in order:
+  (a) teach iracePy to read params.irace (it has no parameter-file reader);
+  (b) port the repair function in scripts/scenario.R to Python;
+  (c) change run-irace.sh and setup.py to call iracePy instead of `irace`;
+  (d) write an experiment log, since irace.Rdata goes away and
+      processRData.py / test.R depend on it;
+  (e) fix one output line that the CI test scripts match on;
+  (f) update dependencies, Docker, CI and the docs, then remove R.
+
+
+2. How AutoIG uses R irace today
+--------------------------------
+
+setup.py
+  - Runs `conjure autoig --generator-to-irace` (or `conjure parameter-generator`)
+    to create <runDir>/params.irace. Every line has the form
+        Ag "-Ag " i (1, 10)
+    Generator parameters are always integers
+    (docs/source/create-an-instance-generator.rst:104).
+  - Copies scripts/instances (a single line, "dummy"), run-irace.sh and run.sh
+    into runDir.
+  - Fills the placeholders in run-irace.sh: <seed>, <nCores>, <maxExperiments>,
+    <targetRunner> = scripts/target-runner, <scenario> = scripts/scenario.R,
+    <elite> = 0|1.
+  - Creates an empty diversity.txt.
+
+run.sh -> run-irace.sh
+    irace -e <elite> --seed <seed> --scenario <scenario>
+          --parameter-file params.irace --train-instances-file instances
+          --exec-dir ./ --max-experiments <maxExperiments>
+          --target-runner <targetRunner> --debug-level 0 --parallel <nCores>
+          --test-type F-test
+  Then run.sh post-processes detailed-output/out-* with read-output-files.sh,
+  extract-md5sum.sh and collect_results.py. None of these read irace's output.
+
+scenario.R
+  Defines only repairConfiguration(configuration, parameters). It:
+    1. swaps X_min/X_max and XMin/XMax pairs so that min <= max;
+    2. if detailed-output/repair.eprime exists, writes the configuration as an
+       Essence param file, runs `conjure solve repair.essence ...
+       --use-existing-model repair.eprime` (Minion, 120 s limit, seed taken
+       from a hash of the configuration), and reads back the repaired_* values;
+    3. caches the result in detailed-output/repairout-<digest>.
+  It also sets trainInstancesDir <- '' so that "dummy" is not resolved as a
+  path. iracePy has no instancesDir, so this is not needed.
+
+target-runner (bash) -> wrapper.py
+  - Arguments: <cid> <instanceID> <seed> <instance> <-name value pairs...>.
+  - Caches the output in detailed-output/out-<cid>-<seed> and re-uses it
+    (intended for resuming a run).
+  - Prints "<score> <time>", where score may be "Inf", or "Error! ..." when the
+    wrapper's last line is not a number.
+
+Diversity (evaluators/*.py)
+  Reads config.json["diversityMetric"], appends to diversity.txt under a
+  FileLock, and uses the seed in the instance filename (inst-<cid>-<seed>) to
+  exclude runs on the same irace instance/seed. This is entirely on the target
+  runner side, so it is independent of the tuner.
+
+Consumers of irace.Rdata
+  - scripts/processRData.py (process_irace_log): uses Rscript to load
+    irace.Rdata and export iraceResults$state$experiment_log rows with
+    cost < 0. It then groups by (iteration, instance) and uses the time column.
+  - scripts/test.R: the same export, for one run.
+  The main pipeline (run.sh, collect_results.py) does not need irace.Rdata.
+
+Installation
+  bin/install-irace.sh (installs irace 4.4.1 from the r-universe dev branch,
+  plus R6, data.table, matrixStats, spacefillr and digest), bin/install-all.sh,
+  bin/set-path.sh and bin/container-set-path.sh (PATH and R_LIBS), the
+  Dockerfile (r-base, install-irace.sh), and both GitHub workflows (r-base,
+  install-irace.sh).
+
+
+3. What already works (smoke test)
+----------------------------------
+
+Test setup: the conda env /software/conda/tw74/conda/envs/autoig (Python 3.12.3,
+NumPy 2.5.2, SciPy 1.18.0). I generated params.irace from
+data/models/macc/generator.essence with conjure, used an "instances" file
+containing "dummy", and a fake bash runner that parses arguments exactly like
+wrapper_helpers.read_args and prints "<score> 0.42" or "Inf 0.5". I then
+called irace_run with budget 400 and parallel 4.
+
+Results:
+  - Six integer parameters parsed, each keeping conjure's "-Ag " switch.
+  - Runner calls looked like `0 1 288545019 dummy -Ag 6 -Tg 4 -Xg 50 ...`. The
+    empty {bound} slot collapses in the shell, as it does in R.
+    read_args(argv) gives cid = argv[1], seed = argv[3] and pairs from argv[5],
+    which is correct.
+  - Inf results rejected those configurations; the run continued.
+  - Exactly 400 runner calls; the final elites were printed.
+
+Direct equivalents in iracePy:
+    R option                    iracePy (cli.py / Scenario)
+    --seed                      --seed / seed
+    --max-experiments           --budget / max_experiments
+    --train-instances-file      --instances / instances (read_instances)
+    --target-runner             --target-runner / target_runner
+    --exec-dir ./               --exec-dir ./ / exec_dir
+    --parallel N                --parallel N / parallel
+    --debug-level 0             --debug-level 0
+    -e 1 / -e 0                 default / --no-elitist (elitist=False)
+    --test-type F-test          (Friedman is the only test, so drop the flag)
+    --scenario scenario.R       --repair-configuration FILE.py:NAME
+    --parameter-file            MISSING, see step 4.1
+
+
+4. Recommended changes
+----------------------
+
+4.1 Add a params.irace reader to iracePy
+
+iracePy only accepts parameters as `--param NAME int LO HI` or as Python
+Parameter objects. Add a reader for the numeric subset of R's parameter-file
+format: a new module, e.g. iracePy/parameters_file.py, plus a
+`--parameter-file` option in cli.py, so that cli.py stays general.
+
+    import re
+    from scenario import Parameter
+
+    _LINE = re.compile(
+        r'^(?P<name>[A-Za-z_][\w.]*)\s+"(?P<switch>[^"]*)"\s+(?P<kind>[ir])\s*'
+        r'\(\s*(?P<lo>[^,()]+?)\s*,\s*(?P<hi>[^,()]+?)\s*\)$')
+
+    def read_parameters(path: str, digits: int = 4) -> list:
+        """Reads the numeric subset of R irace's parameter file:
+        name "switch" i|r (lower, upper). Anything else is an error."""
+        parameters = []
+        with open(path) as f:
+            for n, line in enumerate(f, 1):
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                m = _LINE.match(line)
+                if m is None:
+                    raise ValueError(f"{path}:{n}: unsupported parameter line "
+                                     f"{line!r} (only i/r types, no conditions)")
+                kind = "int" if m["kind"] == "i" else "real"
+                parameters.append(Parameter(m["name"], kind, float(m["lo"]),
+                                            float(m["hi"]), digits=digits,
+                                            switch=m["switch"]))
+        return parameters
+
+In cli.py, make --param optional when --parameter-file is given, and keep the
+existing "at least one parameter" check. Reject c/o types, ",log" and
+"| condition" lines loudly rather than ignoring them.
+
+The switch must stay "-Ag " (one dash, trailing space). wrapper_helpers.read_args
+strips only the first character (params[i][1:]), so iracePy's default switch of
+"--Ag " would produce the key "-Ag" and break every generator.
+
+Single-value domains: Parameter() rejects lower == upper, and so does R irace
+4.x, so this is not a regression. If a generator ever needs a fixed `given`,
+pass it through --target-cmdline, e.g.
+"{configurationID} {instanceID} {seed} {instance} {bound} {targetRunnerArgs} -n 5".
+
+Check: loop over every data/models/*/generator*.essence, run
+`conjure autoig --generator-to-irace` on each, and parse the results with
+read_parameters.
+
+4.2 Port scenario.R's repairConfiguration to Python
+
+Create scripts/repair.py with repair_configuration(values, parameters) ->
+dict. iracePy calls it with a copy of {name: value} and requires a dict with
+exactly the same keys (sampling.repair_values). Sketch:
+
+    import hashlib, json, os, subprocess
+
+    OUTPUT_DIR = "./detailed-output"
+
+    def repair_configuration(values, parameters):
+        # 1. min <= max for X_min/X_max and XMin/XMax pairs (scenario.R:35-49)
+        for name in sorted(p.name for p in parameters):
+            if name.endswith("_min"):
+                other = name[:-3] + "max"
+            elif name.endswith("Min"):
+                other = name[:-3] + "Max"
+            else:
+                continue
+            if other in values:
+                values[name], values[other] = sorted((values[name], values[other]))
+
+        # 2. no repair model: done
+        if not os.path.isfile(os.path.join(OUTPUT_DIR, "repair.eprime")):
+            return values
+
+        # 3. cached result
+        key = " ".join(f"{n}={values[n]}" for n in sorted(values))
+        h = hashlib.md5(key.encode()).hexdigest()
+        cache = os.path.join(OUTPUT_DIR, f"repairout-{h}.json")
+        if os.path.isfile(cache):
+            with open(cache) as f:
+                return json.load(f)
+
+        # 4. write lettings, then run conjure solve (same command as scenario.R)
+        param_file = os.path.join(OUTPUT_DIR, f"repair-{h}.param")
+        with open(param_file, "w") as f:
+            f.writelines(f"letting {n} be {v}\n" for n, v in values.items())
+        seed = int(h[:7], 16)
+        cmd = (f"conjure solve repair.essence {param_file} -o {OUTPUT_DIR} "
+               f"--use-existing-model repair.eprime --solver-options "
+               f"\"-timelimit 120 -varorder domoverwdeg -randomiseorder "
+               f"-randomseed {seed}\" --copy-solutions=off")
+        sol = os.path.join(OUTPUT_DIR, f"repair-repair-{h}-solution000001.solution")
+        if subprocess.run(cmd, shell=True).returncode != 0 or not os.path.isfile(sol):
+            print(f"ERROR while repairing configuration {values}; using it unrepaired")
+            return values
+
+        # 5. read repaired_* lettings (integers only, as in R), then clean up
+        #    the same temporary files that scenario.R deletes
+        ...
+        with open(cache, "w") as f:
+            json.dump(repaired, f)
+        return repaired
+
+Points to keep or decide:
+  - Failure handling. On failure R returns NULL, which breaks irace. In Python,
+    raising an exception would end the whole tuning run. Returning the
+    unrepaired values (with min/max already fixed) is safer: the generator then
+    reports unsat and the wrapper scores Inf, so irace drops that configuration.
+  - Keep the hash independent of the configuration ID. R's digest(paste(
+    configuration)) included .ID. and .PARENT., so its cache never hit across
+    configurations. Hashing only the values is equivalent and caches better.
+    Do not mix the two cache formats: use a fresh runDir (see 5).
+  - Return ints. Values read from the solution file must be converted with
+    int(), and every parameter must still be present. Values that the repair
+    model did not output should keep their sampled value.
+  - Working directory. iracePy calls repair in its own process, whose cwd is
+    the directory run-irace.sh is started from (runDir), not exec_dir. That
+    matches R, and the relative paths ./detailed-output and repair.essence
+    rely on it.
+  - Cost. Repair runs serially in the main thread before each race, up to 120 s
+    per new configuration, as in R. If this becomes a bottleneck, parallelise it
+    later using the executor in irace_run. It does not block the migration.
+  - Self-contained module. cli.load_function loads repair.py by file path.
+    Either keep repair.py free of AutoIG imports, or insert its directory into
+    sys.path before importing utils.
+
+Check: for car-sequencing (which has repair.essence), feed the same
+configurations to the R function and to the Python one, and compare the
+outputs.
+
+4.3 Point run-irace.sh and setup.py at iracePy
+
+New scripts/run-irace.sh template:
+
+    #!/bin/bash
+    python3 -u <iraceCli> --target-runner <targetRunner> --instances instances \
+        --parameter-file params.irace --budget <maxExperiments> --seed <seed> \
+        --parallel <nCores> --exec-dir ./ --debug-level 0 \
+        --repair-configuration <repairFunction> \
+        --experiment-log irace-experiments.csv <eliteFlag>
+
+setup.py, in dictValues (around setup.py:268-275):
+
+    "iraceCli": f"{scriptDir}/iracePy/cli.py",
+    "repairFunction": f"{scriptDir}/repair.py:repair_configuration",
+    "eliteFlag": "" if config["elite"] == "1" else "--no-elitist",
+
+and remove the "scenario" and "elite" entries. As before, always pass the
+repair function, because it does nothing when there is no repair.eprime.
+
+Notes:
+  - `python3` must be the interpreter with numpy and scipy, i.e. the same env
+    that target-runner already uses for wrapper.py. On this machine the base
+    /software/conda/tw74/conda/bin/python3 has no numpy; the autoig env does.
+  - -u keeps the log unbuffered (Slurm, tail -f).
+  - --no-elitist also turns off post-selection, as in R.
+  - During the transition, consider a temporary `--tuner {python,r}` option in
+    setup.py, with two run-irace templates, so that comparison runs (section 6)
+    can use the same code base. Remove it once the switch is validated.
+
+4.4 Replace irace.Rdata with an experiment log
+
+iracePy saves nothing: the only results are stdout and irace_run's return
+value. processRData.py and test.R read experiment_log (columns iteration,
+instance, configuration, cost, time) from irace.Rdata, so add a log to iracePy:
+
+  - race.elitist_race: after `outputs = execute_experiments(...)`, append
+    (iteration, inst_id, configs[i].id, pool.seed_for(inst_id), cost, time) for
+    each executed experiment. inst_id is the pool index, which is what R's
+    experiment_log$instance holds. Only experiments that were actually run are
+    logged; reused elite results are not, which also matches R.
+  - Pass the iteration number in from irace._irace_run. Give post-selection
+    experiments (psrace.post_selection calls elitist_race) a distinct
+    iteration number, e.g. the last iteration + 1, and check how R numbers them
+    on one run.
+  - Write the log as a CSV with the header
+    iteration,instance,configuration,seed,cost,time. Append and flush after
+    each row, so that a run killed by a Slurm time limit still leaves its log.
+  - At the end, also write the final elites and the per-iteration elite IDs
+    (all_elites in irace.py) to a JSON file, e.g. irace-results.json.
+  - Expose the log as --experiment-log PATH in cli.py, and as an optional
+    Scenario field or irace_run argument.
+
+Then:
+  - processRData.process_irace_log: replace the Rscript call with
+        df = pd.read_csv(os.path.join(run_dir, "irace-experiments.csv"))
+        df = df[df.cost < 0]
+    The rest of the function (groupby iteration/instance, time) is unchanged.
+  - test.R: replace with three lines of pandas, or delete it.
+  - Keep R installed until the existing irace.Rdata results (e.g. AAAI27Data)
+    have been exported to CSV with the current script. Rdata cannot be read
+    without R.
+
+4.5 Match R's final output text (CI depends on it)
+
+testScripts/check_*.sh search the output for
+    "# Best configurations as commandlines (first number is the configuration ID; same order as above):"
+report.print_final instead prints "...; listed from best to worst according to
+the sum of ranks):" for the second header, so every CI test would fail. Change
+the second print in report.py:print_final to R 4.x's text ("same order as
+above"), and update section 3 of USER_GUIDE.md to match. The first header
+already matches.
+
+4.6 Dependencies, installation, Docker, CI
+
+  - requirements: iracePy pins numpy==2.5.3, scipy==1.18.1 and pytest==9.1.1,
+    while the root requirements.txt pins numpy==2.3.5, pytest==9.0.2 and has no
+    scipy. Merge them into the root file: add scipy and pick one numpy version.
+    Either loosen iracePy's pins or move them up. iracePy needs Python >= 3.11
+    and SciPy >= 1.15 (for qmc.Sobol(rng=...)). The evaluators already need
+    Python >= 3.12 (nested quotes in f-strings, mzn_graded.py:291).
+  - Dockerfile: replace the apt python3-numpy / python3-pandas packages (old
+    versions, no scipy) with `pip install -r requirements.txt`. Remove
+    `apt install r-base` and `bash bin/install-irace.sh`.
+  - .github/workflows/run_pr_tests.yml and run_push_tests.yml: the same
+    changes, and run iracePy's tests (next point).
+  - iracePy's test suite (tests/), demo/, examples/, MAPPING.md and
+    ALL_DIFFERENCES.md were not copied over, although USER_GUIDE.md refers to
+    them. Copy at least tests/ and the two reference documents, and run
+    `pytest scripts/iracePy/tests -m "not slow"` in CI.
+  - bin/install-all.sh: remove irace from the loop. bin/set-path.sh and
+    bin/container-set-path.sh: remove the irace PATH and R_LIBS lines. Once
+    nothing uses R, delete bin/install-irace.sh, bin/R-packages.R,
+    bin/irace-source.zip and the installed R libraries (bin/irace, R6,
+    data.table, digest, matrixStats, spacefillr), plus scripts/scenario.R.
+  - Commit scripts/iracePy (currently untracked) and the deletion of
+    scripts/irace together, so that the branch is never without a tuner.
+
+4.7 Documentation
+
+  - README.rst and docs/source/*.rst mention R or irace about 20 times
+    (installation, setup-the-experiment, start-the-tuning). Update the
+    installation steps and the description of run-irace.sh.
+  - USER_GUIDE.md: change the folder name from `pyimplement/` to
+    scripts/iracePy, and document --parameter-file and --experiment-log.
+
+
+5. Behavioural differences to know about
+----------------------------------------
+
+  - Configuration IDs start at 0, not 1. File names such as out-0-<seed>,
+    inst-0-<seed>-... and gen-inst-0.param appear. Nothing in AutoIG assumes
+    IDs start at 1.
+  - Do not reuse a runDir from an R run. target-runner reuses
+    detailed-output/out-<cid>-<seed> if it exists, so a colliding ID and seed
+    would silently return an old R result. setup.py only warns when runDir
+    exists; consider refusing if detailed-output/out-* is present.
+  - The same seed gives a different run from R (different RNGs). Compare R and
+    Python runs statistically, never run by run. Do not mix R and Python runs
+    in one results table: rerun the baselines (e.g. "none") with iracePy.
+  - No recovery. R's --recovery-file was never used, and iracePy has none.
+    Rerunning with the same seed re-uses target-runner's cached out-* files
+    only until a cost differs. Costs depend on measured solver times, so the
+    run soon diverges. Treat a killed run as lost (apart from its log).
+  - Parallelism uses threads, each waiting on a target-runner subprocess,
+    instead of R's forked mclapply. FileLock on diversity.txt still works,
+    because every evaluation is its own process. USER_GUIDE.md says parallel
+    and serial runs are identical; that does not hold for AutoIG, because
+    scores depend on timing and on what is already in diversity.txt (as with R).
+  - Runner errors abort the whole run. "Error! ..." from target-runner, a
+    non-zero exit status, or more than two numbers stops iracePy with
+    TargetRunnerError, as R does. The error message includes the full command,
+    which can be re-run by hand from runDir.
+  - Time must be > 0. iracePy rejects a time of 0 or less. wrapper.py prints
+    np.round(totalWrapperTime, 2), which could print 0.0 for a run under
+    0.005 s. That is practically impossible, but clamping to 0.01 in
+    print_results() costs nothing.
+  - iracePy's module names are generic (scenario, stats, model, report,
+    instances, race). Running it as its own process, as above, avoids any clash
+    with AutoIG's modules. If it is ever imported in-process, make it a package
+    with relative imports first.
+
+
+6. Validation plan
+------------------
+
+  1. iracePy's own tests (after copying tests/), plus a unit test for
+     read_parameters on every data/models generator.
+  2. Repair parity on car-sequencing (section 4.2).
+  3. The existing CI scripts (testScripts/check_pr_graded.sh,
+     check_pr_discrim.sh, check_push*.sh) with the Python tuner, after the
+     change in 4.5.
+  4. Compare collect_results.py output from short R and Python runs of the same
+     scenario. The columns and statuses should match; the values will differ.
+  5. Statistical check on two or three problems and two or three
+     diversityMetric settings, with about 5 seeds per tuner: number of graded
+     or discriminating instances found, distribution of iraceScore, and the
+     diversity scores from processRData.py. Expect similar distributions, not
+     identical runs.
+  6. Once 1-5 pass, remove R (4.6).
+
+
+7. Suggested order of work
+--------------------------
+
+  1. 4.1 parameter-file reader and 4.5 output text (small, self-contained).
+  2. 4.2 repair.py, with the parity check.
+  3. 4.3 run-irace.sh and setup.py, with a temporary --tuner switch.
+  4. 4.4 experiment log, processRData.py and test.R.
+  5. Validation (section 6).
+  6. 4.6 and 4.7: dependencies, Docker, CI and docs; then remove R.
