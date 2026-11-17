@@ -124,10 +124,11 @@ def missing_counts(global_results: dict, ids: list) -> dict:
 def post_selection(scenario, pool, global_results: dict, all_configs: dict,
                    all_elites: list, rejected_ids: set, max_experiments: int,
                    min_survival: int, seed: int, executor=None, verbose: bool = True,
-                   timer: Timer | None = None):
+                   timer: Timer | None = None, iteration: int = 0, on_experiment=None):
     """Ports psRace (psRace.R:42-297). Returns (elites, experiments_used), or None
     when there are not two configurations to race; the caller then keeps its
     current elites, as psRace returns the last iteration's elites (psRace.R:222-226).
+    `iteration` and `on_experiment` are passed to race.elitist_race.
     """
     timer = timer or Timer()
     if verbose:
@@ -163,7 +164,8 @@ def post_selection(scenario, pool, global_results: dict, all_configs: dict,
         configs, dataclasses.replace(scenario, elitist_limit=0, elitist=True), pool,
         global_results, next_instance=n_old + 1, elitist_new_instances=0,
         max_exp=max_experiments, min_survival=1, first_race=False, first_test=n_old,
-        executor=executor, verbose=verbose, debug_level=scenario.debug_level)
+        executor=executor, verbose=verbose, debug_level=scenario.debug_level,
+        iteration=iteration, on_experiment=on_experiment)
     elites = race.extract_elites(result.ranked_configs, min_survival)
     if verbose:
         # psRace.R:266-277.

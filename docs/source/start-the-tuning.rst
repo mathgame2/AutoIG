@@ -35,6 +35,8 @@ And an example summary for the MACC discriminating experiment:
 
 The list of graded/discriminating instances and their detailed results are available at ``graded-instances-info.csv`` and ``discriminating-instances-info.csv``, located in the same folder of the experiments. For detailed results of all evaluations during the whole instance generation process, please checkout ``detailed-output.json``, where each line coressponds to a generator configuration evaluation.
 
+irace's own record of the tuning is saved in the same folder: ``irace-experiments.csv`` lists every evaluation (iteration, instance, generator configuration, seed, score and time), and is written as the tuning runs; ``irace-results.json`` lists the elite generator configurations of each iteration and the final ones.
+
 .. note::
     The ``detailed-output`` folder contains all outputs and temporary files created during the instance generation process. This folder can get heavy pretty soon, therefore, after the instance generation process is finished and you have extracted all graded/discriminating instances out of it, this folder can be safely removed. The reason why we do not remove this folder automatically is because sometime the tuning can crash after running for a while due to some bugs/issues with the solvers themselves, or simply because we are out of computational resources (e.g., a job run on a cluster computer is killed due to hitting the time limit allowed). In such cases, we want to resume the experiments from where it was before the termination instead of having to re-run from the start. If the ``detailed-output`` folder is available, AutoIG will automatically read results in that folder and resume the experiment when users call ``run.sh`` again.
 

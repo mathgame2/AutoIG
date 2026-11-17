@@ -38,3 +38,4 @@ scripts/processRData.py
 scripts/seedPlot.py
 scripts/test.R
 data/notes
+bin/conjure-v2.6.1

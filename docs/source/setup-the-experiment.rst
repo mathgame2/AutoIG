@@ -42,7 +42,8 @@ A full list of generated files (and folder) by the setup script is listed below:
 
     - ``problem.mzn`` or ``problem.essence``: a copy of the original problem specification model.
     - ``generator.essence``: a copy of the original instance generator model.
-    - ``params.irace``, ``instances``, ``run-irace.sh``: files needed to call irace.
+    - ``params.irace``: the generator parameters to tune, as created by Conjure from the generator model.
+    - ``params.json``, ``instances``: files needed to call irace. ``params.json`` holds the same parameters as ``params.irace``, read by ``scripts/run_tuning.py``.
     - ``generator.eprime``: the instance generator model translated into Essence Prime language, used by the Essence pipeline when solving generator instances.
     - ``config.json``: a ``.json`` file containing all settings of the experiments.
     - ``detailed-output``: a folder containing all temporary files created during the instance generation process. See LINK for more details.
@@ -98,6 +99,8 @@ All setup arguments
     - ``--seed``: random seed for the experiment (used by irace). Default: 42
     - ``--maxEvaluations``: AutoIG running budget, i.e., the total number of evaluations being used by irace during the tuning process. Each evaluation correspond to solving a generator instance, getting an instance out of it (if possible), evaluating the quality of that instance, and returning a score back to irace. Default: 2000
     - ``--nCores``: the number of parallel proccesses irace can use during the tuning. If you have parallel resources available, utilising this option can generally speed up the total running time (walltime) a lot. Default: 1
+    - ``--tuner``: the irace implementation used for the tuning: ``python`` (the implementation in ``scripts/iracePy``) or ``r`` (R irace, which must be installed with ``bin/install-irace.sh``; kept temporarily for comparison runs). Default: ``python``
+    - ``--debugLevel``: how much extra output irace prints during the tuning: ``0`` (standard output), ``1`` (adds R irace's debug notes, e.g., why each race stopped and the elite configurations' metadata) or ``2`` (also lists every configuration still in the race after each instance; this can be very long). With ``--tuner r``, the value is passed to R irace's ``--debug-level``, so levels ``1`` and ``2`` print R irace's own debug output instead. Default: ``0``
 
 **Generator instance settings:** 
 

@@ -105,11 +105,17 @@ def elitist_race(configs: list, scenario: Scenario, pool, global_results: dict,
                   next_instance: int, elitist_new_instances: int, max_exp: int,
                   min_survival: int, first_race: bool, verbose: bool = False,
                   executor=None, first_test: int | None = None,
-                  debug_level: int = 0) -> RaceResult:
+                  debug_level: int = 0, iteration: int = 0,
+                  on_experiment=None) -> RaceResult:
     """Ports elitist_race (race.R:633-1074). With `verbose`, prints R's race
     table: a header, one row per instance (race.R:804, 979) and a footer. With
     debug_level >= 2 (not in R), each row is followed by every configuration
-    that was alive on that instance, its scores, and what happened to it."""
+    that was alive on that instance, its scores, and what happened to it.
+
+    `on_experiment(iteration, instance, configuration, seed, cost, time)` (not
+    in R) is called in this thread for every experiment the race runs, as R
+    adds it to experiment_log; results reused from earlier races are not
+    reported. `instance` is the pool id, as R's experiment_log$instance."""
     show_configurations = verbose and debug_level >= 2
 
     def print_configurations(task, inst_id, task_alive, executed, status):
@@ -229,9 +235,12 @@ def elitist_race(configs: list, scenario: Scenario, pool, global_results: dict,
         start_time = time.time()
         outputs = execute_experiments(executor, scenario, pool, inst_id,
                                       [configs[i] for i in which_exe])
-        for i, (cost, _time) in zip(which_exe, outputs):
+        for i, (cost, time_used) in zip(which_exe, outputs):
             Results[task, i] = cost
             global_results.setdefault(inst_id, {})[configs[i].id] = cost
+            if on_experiment is not None:
+                on_experiment(iteration, inst_id, configs[i].id, pool.seed_for(inst_id), cost,
+                              time_used)
         experiments_used += which_exe.size
 
         not_executed_elite = which_alive[(is_elite[which_alive] > 0) & ~np.isin(which_alive, which_exe)]

@@ -1,4 +1,4 @@
-# User guide: irace in Python (`pyimplement/`)
+# User guide: irace in Python (`scripts/iracePy/`)
 
 This guide explains how to tune an algorithm's parameters with the Python
 implementation of irace in this folder. It is self-contained: you do not need to
@@ -54,17 +54,22 @@ to work around the first three; section 11 has the full list.
 
 ## 2. Installation
 
+> **In AutoIG** the `tests/`, `demo/` and `examples/` folders and the
+> `MAPPING.md` and `ALL_DIFFERENCES.md` documents mentioned below were not copied
+> into `scripts/iracePy`. AutoIG drives this implementation through
+> `scripts/run_tuning.py`; see `recommendations.txt`.
+
 You need Python 3.11 or later with NumPy and SciPy; pytest is needed only for the
 tests. The pinned versions are in [requirements.txt](requirements.txt):
 
 ```sh
-cd pyimplement
+cd scripts/iracePy
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
 There is nothing else to install. The modules are imported by name (`scenario`,
-`irace`, ...), so either run Python from inside `pyimplement/`, or add the folder
+`irace`, ...), so either run Python from inside `scripts/iracePy/`, or add the folder
 to `sys.path` (section 6.2).
 
 > **On the St Andrews HPC cluster**: the `.venv` checked into this folder was
@@ -82,7 +87,7 @@ listed in [demo/instances.txt](demo/instances.txt).
 From the command line:
 
 ```sh
-cd pyimplement
+cd scripts/iracePy
 python3 cli.py --target-runner ./demo/target_runner.py \
     --instances demo/instances.txt \
     --param x real -5 5 --param y real -5 5 --param n int 1 10 \
@@ -97,7 +102,7 @@ This takes about a minute. The run ends with the best configurations, best first
 259 1.4666 -1.9809 4
 180 1.4792 -1.9480 4
 246 1.4283 -1.9435 4
-# Best configurations as commandlines (first number is the configuration ID; listed from best to worst according to the sum of ranks):
+# Best configurations as commandlines (first number is the configuration ID; same order as above):
 259 --x 1.4666 --y -1.9809 --n 4
 180 --x 1.4792 --y -1.948 --n 4
 246 --x 1.4283 --y -1.9435 --n 4
@@ -376,7 +381,7 @@ a repair function, or when you want to use the result directly:
 
 ```python
 import sys
-sys.path.insert(0, "/path/to/pyimplement")     # the modules are imported by name
+sys.path.insert(0, "/path/to/scripts/iracePy")     # the modules are imported by name
 
 from instances import read_instances
 from irace import irace_run
@@ -387,8 +392,8 @@ scenario = Scenario(
     parameters=[Parameter("x", "real", -5.0, 5.0),
                 Parameter("y", "real", -5.0, 5.0),
                 Parameter("n", "int", 1, 10)],
-    instances=read_instances("/path/to/pyimplement/demo/instances.txt"),
-    target_runner="/path/to/pyimplement/demo/target_runner.py",
+    instances=read_instances("/path/to/scripts/iracePy/demo/instances.txt"),
+    target_runner="/path/to/scripts/iracePy/demo/target_runner.py",
     max_experiments=1500,
     seed=1,
     parallel=4,
@@ -407,6 +412,26 @@ these fields:
 - `parent_id`, the elite it was sampled from (`None` for the first iteration);
 - `rank`, its sum of ranks in its last race;
 - `weight`, its probability of being chosen as a parent.
+
+Nothing is saved to disk (there is no `irace.Rdata`). To keep a record of the
+run, pass one or both callbacks; they are called in the thread that runs
+`irace_run`, so they need no locking:
+
+```python
+def on_experiment(iteration, instance, configuration, seed, cost, time):
+    ...   # every experiment run, as R's experiment_log; time is None if the
+          # runner printed only a cost
+
+def on_iteration(iteration, elites):
+    ...   # that iteration's elites, best first, as R's allElites
+
+elites = irace_run(scenario, on_experiment=on_experiment, on_iteration=on_iteration)
+```
+
+`instance` is the position in irace's instance sequence (the `Instance` column of
+the race table), not the `instanceID` passed to the runner. Results reused from
+earlier races are not reported again. The post-selection race reports its
+experiments with the iteration number after the last iteration.
 
 `Scenario(...)` checks every option when it is created and raises `ValueError` on
 bad input. It also makes the target-runner and execution-directory paths absolute.
@@ -532,7 +557,7 @@ travelling salesman problem.
 ### 8.1 Running it
 
 ```sh
-cd pyimplement/examples/acotsp
+cd scripts/iracePy/examples/acotsp
 ./setup.sh      # downloads and compiles ACOTSP, downloads 400 TSP instances
 ```
 
@@ -546,7 +571,7 @@ Then either:
 
 ```sh
 # The test: a 1000-run budget, 1 s per ACOTSP run. About 5-7 minutes with 16 CPUs.
-cd pyimplement && python3 -m pytest tests/test_acotsp.py -s
+cd scripts/iracePy && python3 -m pytest tests/test_acotsp.py -s
 
 # The paper's setting: 5000 runs of 20 s each. Hours, even in parallel.
 python3 examples/acotsp/run_acotsp.py --budget 5000 --time 20 --parallel 32 --seed 1
@@ -598,7 +623,7 @@ cluster, run it inside a job that asks for one node and *N* CPUs, and use
 #SBATCH --output=%x-%j.out
 
 PY=/software/conda/tw74/conda/envs/autoig/bin/python   # any Python with numpy and scipy
-cd /path/to/pyimplement
+cd /path/to/scripts/iracePy
 mkdir -p arena-$SLURM_JOB_ID                           # one execution directory per job
 
 $PY -u cli.py --target-runner /path/to/my_runner --instances /path/to/instances.txt \
@@ -612,7 +637,7 @@ the log with `tail -f irace-<jobid>.out`. Python's `-u` makes the log appear as
 it is written instead of when the buffer fills.
 
 - **ACOTSP**: [examples/acotsp/test_acotsp.sbatch](examples/acotsp/test_acotsp.sbatch)
-  runs the ACOTSP test as a job. It writes its output to `pyimplement/run.txt`.
+  runs the ACOTSP test as a job. It writes its output to `scripts/iracePy/run.txt`.
 - **Several independent runs**, e.g. the paper's 30 runs: submit one job per seed,
   each with its own `--exec-dir`, or use a job array with `--seed $SLURM_ARRAY_TASK_ID`.
 - **Interactive use**: `srun --partition=interactive --cpus-per-task=16 --time=01:00:00 --pty bash`.
@@ -670,7 +695,7 @@ are listed in [ALL_DIFFERENCES.md](ALL_DIFFERENCES.md), and
 ## 12. Running the test suite
 
 ```sh
-cd pyimplement
+cd scripts/iracePy
 python3 -m pytest tests -m "not slow"      # 264 tests, about a minute
 python3 -m pytest tests -m slow -s         # the real ACOTSP tests (run setup.sh first)
 ```

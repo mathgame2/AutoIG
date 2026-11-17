@@ -277,7 +277,7 @@ def print_final(elites: list, parameters: list) -> None:
           f" listed from best to worst according to the {ORDER_STR}):")
     configurations_print(elites, parameters)
     print("# Best configurations as commandlines (first number is the configuration ID;"
-          f" listed from best to worst according to the {ORDER_STR}):")
+          " same order as above):")
     configurations_print_command(elites, parameters)
 
 

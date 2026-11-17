@@ -5,7 +5,7 @@ AutoIG makes use of several softwares, including:
 
     - The `Essence pipeline`_: a constraint modelling toolchain developed by our Constraint Programming group at University of St Andrews and University of York. The pipeline supports modelling a combinatorial optimisation problem as a constraint model. Starting with an abstract specification of a constraint problem (written in Essence_), the pipeline can perform the modelling and solving phases efficiently and automatically via the constraint modelling and reformulation tools `Conjure`_ [AFGJ22]_ and `Savile Row`_ [NAGJ17]_. 
 
-    - The automated algorithm configurator `irace`_ [LDCB16]_: irace is a general-purpose automated tool for configuring parameters of algorithms. 
+    - The automated algorithm configurator `irace`_ [LDCB16]_: irace is a general-purpose automated tool for configuring parameters of algorithms. AutoIG uses a Python implementation of irace, included in ``scripts/iracePy``. 
 
     - The `MiniZinc`_ [NSBB07]_ toolchain: a constraint modelling toolchain developed at Monash University, in collaboration with Data61 Decision Sciences and the University of Melbourne. MiniZinc supports `several solvers`__ via their FlatZinc interfaces. AutoIG uses MiniZinc to access those solvers and generate benchmarking instances for them.
 
@@ -21,6 +21,12 @@ AutoIG makes use of several softwares, including:
 .. _`runsolver`: https://content.iospress.com/articles/journal-on-satisfiability-boolean-modeling-and-computation/sat190083
 
 To install all softwares, a bash script is provided in ``bin/install-all.sh``. The script will download and install all softwares into ``bin/``. 
+
+AutoIG's scripts, including the Python implementation of irace, need Python 3.12 or later and the packages listed in ``requirements.txt``:
+
+.. code-block:: rst
+
+    pip install -r requirements.txt
 
 After installation, please set the environment variables accordingly by running the following line at the beginning of each bash session:
 

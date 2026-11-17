@@ -10,14 +10,17 @@ import subprocess
 import shlex
 from collections import OrderedDict
 import pathlib
+import dataclasses
 
 scriptDir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(scriptDir)
+sys.path.append(os.path.join(scriptDir, "iracePy"))
 
 import utils
 from utils import log
 
 from conf import solverInfo
+from parameters_file import read_parameters
 
 def read_config(args):
     config = OrderedDict()
@@ -31,6 +34,8 @@ def read_config(args):
         "nCores",
         "elite",
         "diversityMetric",
+        "tuner",
+        "debugLevel",
     ]
     genSettings = [
         "genMaxInt",
@@ -150,14 +155,14 @@ def setup(config):
         ), "ERROR: automated generator model is only supported if problemModel is written in Essence"
 
         # run "conjure parameter-generator"
-        if config.generatorMaxInt <= 0:
-            print("ERROR: generatorMaxInt must be positive")
+        if config["genMaxInt"] <= 0:
+            print("ERROR: genMaxInt must be positive")
             sys.exit(1)
         cmd = (
             "conjure parameter-generator "
             + problemModelFile
             + " --MAXINT="
-            + str(config["generatorMaxInt"])
+            + str(config["genMaxInt"])
         )
         utils.log(cmd)
         utils.run_cmd(cmd)
@@ -216,6 +221,17 @@ def setup(config):
             copy(repair_dir, tmpPath)
             repairModelFile = tmpPath
 
+    # convert the irace parameter file created by conjure into the parameter list used by the python irace
+    # this also checks that every generator parameter can be tuned (integer domain with numeric bounds)
+    iraceParamFile = os.path.join(config["runDir"], "params.irace")
+    try:
+        parameters = read_parameters(iraceParamFile)
+    except ValueError as e:
+        print(f"ERROR: cannot tune the generator parameters: {e}")
+        sys.exit(1)
+    with open(os.path.join(config["runDir"], "params.json"), "wt") as f:
+        json.dump([dataclasses.asdict(p) for p in parameters], f, indent=1)
+
     # generate problem's eprime model
     if problemModelType == "essence":
         conjureTempDir = os.path.join(config["runDir"], "conjure-output")
@@ -260,25 +276,29 @@ def setup(config):
                 copy(os.path.join(config["runDir"], fn), detailedOutDir)
 
     # copy other neccessary files
-    for fn in ["instances", "run-irace.sh", "run.sh"]:
+    for fn in ["instances", "run.sh"]:
         copy(os.path.join(scriptDir, fn), config["runDir"])
 
-    # update fields in run-irace.sh
-    iraceFile = os.path.join(config["runDir"], "run-irace.sh")
-    dictValues = {
-        "seed": config["seed"],
-        "nCores": config["nCores"],
-        "maxExperiments": config["maxEvaluations"],
-        "targetRunner": f"{scriptDir}/target-runner",
-        "scenario": f"{scriptDir}/scenario.R",
-        "elite": config["elite"],
-    }
-    with open(iraceFile, "rt") as f:
-        lsLines = f.readlines()
-    for field, value in dictValues.items():
-        lsLines = [s.replace("<" + field + ">", str(value)) for s in lsLines]
-    with open(iraceFile, "wt") as f:
-        f.writelines(lsLines)
+    # R irace only: create run-irace.sh with all settings filled in
+    # (the python irace, run by run_tuning.py, reads them from config.json and params.json)
+    if config["tuner"] == "r":
+        copy(os.path.join(scriptDir, "run-irace.sh"), config["runDir"])
+        iraceFile = os.path.join(config["runDir"], "run-irace.sh")
+        dictValues = {
+            "seed": config["seed"],
+            "nCores": config["nCores"],
+            "maxExperiments": config["maxEvaluations"],
+            "targetRunner": f"{scriptDir}/target-runner",
+            "scenario": f"{scriptDir}/scenario.R",
+            "elite": config["elite"],
+            "debugLevel": config["debugLevel"],
+        }
+        with open(iraceFile, "rt") as f:
+            lsLines = f.readlines()
+        for field, value in dictValues.items():
+            lsLines = [s.replace("<" + field + ">", str(value)) for s in lsLines]
+        with open(iraceFile, "wt") as f:
+            f.writelines(lsLines)
 
     # Create file for tracking intermediate diversity values
     open(os.path.join(config["runDir"], "diversity.txt"), "w")
@@ -507,6 +527,21 @@ def main():
         choices=["none", "max_closest_dist", "random", "maxAvgDist", "individualAvgBuckets", "individualNormEntropy", "normalisedEntropyDelta", "individualBuckets", "wassersteinDelta", "wassersteinDeltaReverse", "normalisedEntropyDeltaReverse"],
     ) # TODO add choices and set boundarys (i.e. maybe one only works for graded etc.)
     
+
+    parser.add_argument(
+        "--tuner",
+        type=str,
+        help="irace implementation used for the tuning: the python version in scripts/iracePy (default), or R irace (temporary, for comparison runs)",
+        default="python",
+        choices=["python", "r"],
+    )
+    parser.add_argument(
+        "--debugLevel",
+        type=int,
+        help="amount of extra irace output: 0 (default), 1 or 2; passed to R irace as --debug-level, where the levels have R irace's own meaning",
+        default=0,
+        choices=[0, 1, 2],
+    )
 
     # read all settings into one variable and check setting validity
     args = parser.parse_args()

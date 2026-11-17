@@ -57,7 +57,8 @@ def read_data(runDir):
     tRs.loc[:,"instanceResults"] = [(s,s.pop("instance"))[0] if s!={} else None for s in tRs.instanceResults]
 
     # shorten candidate instance names
-    tRs.loc[:,"instance"] = [inst.split("detailed-output/")[1] if inst!=None else None for inst in tRs.instance]
+    # (missing names are None in pandas 2 but NaN in pandas 3, so check for a string rather than for None)
+    tRs.loc[:,"instance"] = [inst.split("detailed-output/")[1] if isinstance(inst, str) else None for inst in tRs.instance]
 
     # read instance hashsum
     tHs = pd.read_csv(hashSumFile)

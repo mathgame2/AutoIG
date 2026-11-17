@@ -120,8 +120,17 @@ def post_selection_applies(scenario: Scenario, remaining_budget: int) -> bool:
     return scenario.postselection and remaining_budget // scenario.each_test > 1
 
 
-def irace_run(scenario: Scenario, verbose: bool = True) -> list:
+def irace_run(scenario: Scenario, verbose: bool = True, on_experiment=None,
+              on_iteration=None) -> list:
     """Run irace and return the final elite configurations, best first.
+
+    Two optional callbacks (not in R) report the run as it happens, in place of
+    R's irace.Rdata:
+      - on_experiment(iteration, instance, configuration, seed, cost, time) for
+        every experiment run (see race.elitist_race). The post-selection race
+        reports its experiments with the iteration number after the last one.
+      - on_iteration(iteration, elites) after each iteration's race, with that
+        iteration's elites, best first (R's iraceResults$allElites).
 
     With scenario.parallel > 1, one thread pool is kept for the whole run and shut
     down at the end, like R's start_parallel/stop_parallel (race_state.R:163-180);
@@ -129,12 +138,12 @@ def irace_run(scenario: Scenario, verbose: bool = True) -> list:
     Threads suffice because each worker only waits on a target-runner subprocess.
     """
     if scenario.parallel <= 1:
-        return _irace_run(scenario, verbose, executor=None)
+        return _irace_run(scenario, verbose, None, on_experiment, on_iteration)
     with ThreadPoolExecutor(max_workers=scenario.parallel, thread_name_prefix="irace-exp") as executor:
-        return _irace_run(scenario, verbose, executor)
+        return _irace_run(scenario, verbose, executor, on_experiment, on_iteration)
 
 
-def _irace_run(scenario: Scenario, verbose: bool, executor) -> list:
+def _irace_run(scenario: Scenario, verbose: bool, executor, on_experiment, on_iteration) -> list:
     timer = Timer()
     debug_level = scenario.debug_level
     params = scenario.parameters
@@ -324,7 +333,8 @@ def _irace_run(scenario: Scenario, verbose: bool, executor) -> list:
             race_configs, scenario, pool, global_results,
             next_instance=next_instance, elitist_new_instances=elitist_new_instances,
             max_exp=current_budget, min_survival=min_survival, first_race=first_race,
-            verbose=verbose, executor=executor, debug_level=debug_level)
+            verbose=verbose, executor=executor, debug_level=debug_level,
+            iteration=index_iteration, on_experiment=on_experiment)
 
         remaining_budget -= result.experiments_used
         experiments_used += result.experiments_used
@@ -334,6 +344,8 @@ def _irace_run(scenario: Scenario, verbose: bool, executor) -> list:
         debug_note("Extracting elites\n")
         elites = extract_elites(result.ranked_configs, n_elites_out)
         all_elites.append([e.id for e in elites])
+        if on_iteration is not None:
+            on_iteration(index_iteration, elites)
         if verbose:
             print_elite_configurations(elites, params, debug_level)
 
@@ -360,7 +372,8 @@ def _irace_run(scenario: Scenario, verbose: bool, executor) -> list:
     if all_elites and post_selection_applies(scenario, remaining_budget):
         outcome = post_selection(scenario, pool, global_results, all_configs, all_elites,
                                  rejected_ids, remaining_budget, min_survival, seed,
-                                 executor=executor, verbose=verbose, timer=timer)
+                                 executor=executor, verbose=verbose, timer=timer,
+                                 iteration=index_iteration, on_experiment=on_experiment)
         if outcome is not None:
             elites = outcome[0]
     return elites
